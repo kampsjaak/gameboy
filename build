@@ -1,0 +1,15 @@
+#!/bin/sh
+
+ROMNAME=unbricked.gb
+
+rm -f *.o
+rm -f *.gb
+
+rgbasm -o main.o main.asm
+rgblink -o $ROMNAME main.o
+rgblink -n $ROMNAME.sym main.o
+rgbfix -v -p 0xFF $ROMNAME
+
+rm -f *.o
+
+echo "$(pwd)/$ROMNAME"

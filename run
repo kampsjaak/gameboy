@@ -1,0 +1,3 @@
+#!/bin/sh
+EMULICIOUS=~/downloads/emulicious/Emulicious.jar 
+java -jar $EMULICIOUS $(cat -)
