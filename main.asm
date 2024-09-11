@@ -1,4 +1,5 @@
 INCLUDE "hardware.inc"
+
 ; https://gbdev.io/gb-asm-tutorial/part1/assembly.html
 SECTION "Header", ROM0[$100]
 
@@ -9,8 +10,8 @@ SECTION "Header", ROM0[$100]
 EntryPoint:
     ; Do not turn the LCD off outside of VBlank
 WaitVBlank:
-    ld a, [rLY]
-    cp 144
+    ld a, [rLY] ; ld *rLY into register a
+    cp 144 ; compare a to 144
     jp c, WaitVBlank
 
     ; Turn the LCD off
@@ -27,7 +28,7 @@ WaitVBlank:
     ld de, Tilemap
     ld hl, $9800
     ld bc, TilemapEnd - Tilemap
-    call Memcopy
+    call Memcopy ; function call
 
     ; Copy the paddle tile
     ld de, Paddle
@@ -40,8 +41,8 @@ WaitVBlank:
     ld hl, _OAMRAM
 ClearOam:
     ld [hli], a
-    dec b
-    jp nz, ClearOam
+    dec b ; decrement
+    jp nz, ClearOam ; jump if nonzero
 
 	ld hl, _OAMRAM
     ld a, 128 + 16
@@ -65,6 +66,8 @@ ClearOam:
     ; Initialize global variables
     ld a, 0
     ld [wFrameCounter], a
+    ld [wCurKeys], a
+    ld [wNewKeys], a
 
 Main:
     ld a, [rLY]
@@ -75,21 +78,74 @@ WaitVBlank2:
     cp 144
     jp c, WaitVBlank2
 
-    ld a, [wFrameCounter]
-    inc a
-    ld [wFrameCounter], a
-    cp a, 15 ; Every 15 frames (a quarter of a second), run the following code
-    jp nz, Main
+    ; Check the current keys every frame and move left or right.
+    call UpdateKeys
 
-    ; Reset the frame counter back to 0
-    ld a, 0
-    ld [wFrameCounter], a
+    ; First, check if the left button is pressed.
+CheckLeft:
+    ld a, [wCurKeys]
+    and a, PADF_LEFT
+    jp z, CheckRight
+Left:
+    ; Move the paddle one pixel to the left.
+    ld a, [_OAMRAM + 1]
+    dec a
+    ; If we've already hit the edge of the playfield, don't move.
+    cp a, 15
+    jp z, Main
+    ld [_OAMRAM + 1], a
+    jp Main
 
+; Then check the right button.
+CheckRight:
+    ld a, [wCurKeys]
+    and a, PADF_RIGHT
+    jp z, Main
+Right:
     ; Move the paddle one pixel to the right.
     ld a, [_OAMRAM + 1]
     inc a
+    ; If we've already hit the edge of the playfield, don't move.
+    cp a, 105
+    jp z, Main
     ld [_OAMRAM + 1], a
     jp Main
+
+UpdateKeys:
+  ; Poll half the controller
+  ld a, P1F_GET_BTN
+  call .onenibble
+  ld b, a ; B7-4 = 1; B3-0 = unpressed buttons
+
+  ; Poll the other half
+  ld a, P1F_GET_DPAD
+  call .onenibble
+  swap a ; A3-0 = unpressed directions; A7-4 = 1
+  xor a, b ; A = pressed buttons + directions
+  ld b, a ; B = pressed buttons + directions
+
+  ; And release the controller
+  ld a, P1F_GET_NONE
+  ldh [rP1], a
+
+  ; Combine with previous wCurKeys to make wNewKeys
+  ld a, [wCurKeys]
+  xor a, b ; A = keys that changed state
+  and a, b ; A = keys that changed to pressed
+  ld [wNewKeys], a
+  ld a, b
+  ld [wCurKeys], a
+  ret
+
+.onenibble
+  ldh [rP1], a ; switch the key matrix
+  call .knownret ; burn 10 cycles calling a known ret
+  ldh a, [rP1] ; ignore value while waiting for the key matrix to settle
+  ldh a, [rP1]
+  ldh a, [rP1] ; this read counts
+  or a, $F0 ; A7-4 = 1; A3-0 = unpressed keys
+.knownret
+  ret
 
 ; Copy bytes from one area to another.
 ; @param de: Source
@@ -98,15 +154,15 @@ WaitVBlank2:
 Memcopy:
     ld a, [de]
     ld [hli], a
-    inc de
+    inc de ; increment
     dec bc
     ld a, b
-    or a, c
+    or a, c ; logical or
     jp nz, Memcopy
     ret
 
 Tiles:
-	dw `33333333
+	dw `33333333 ; define word
 	dw `33333333
 	dw `33333333
 	dw `33322222
@@ -351,3 +407,7 @@ PaddleEnd:
 
 SECTION "Counter", WRAM0
 wFrameCounter: db
+
+SECTION "Input Variables", WRAM0
+wCurKeys: db
+wNewKeys: db
